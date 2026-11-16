@@ -1,0 +1,14 @@
+{
+  "best_epoch": 30,
+  "best_validation_mse": 0.4638238738504498,
+  "test_mse": 0.36871519582024936,
+  "training_mean_baseline_test_mse": 1.0112138986587524,
+  "train_windows": 8295,
+  "validation_windows": 929,
+  "test_windows": 928,
+  "evaluation_split": "test",
+  "evaluation_users": [
+    12,
+    13
+  ]
+}
