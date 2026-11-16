@@ -1,4 +1,4 @@
-# Motion Atlas — Hackathon Day 1
+# AutoEncoders — Hackathon Day 1
 
 **Project:** AI Methods I hackathon, Group 3  
 **Date:** Monday, 16 November 2026  
@@ -11,7 +11,7 @@
 - Prepared fixed-length sensor windows and split participants—not individual windows—between training, validation, and test sets.
 - Trained and compared a dense autoencoder and two 1D convolutional autoencoders.
 - Saved model weights, input-scaling values, configuration files, metrics, loss curves, and test reconstruction plots.
-- Selected **Motion Atlas** as the direction for the app: explore movement examples and find recordings with similar patterns. Similarity search is a next step; today’s models are evaluated on reconstruction error.
+
 
 ## Dataset
 
@@ -85,10 +85,6 @@ These plots compare original and reconstructed signals for one fixed test window
 ## What the results show—and do not show
 
 **Demonstrated today:** the models reconstruct two-second IMU windows from held-out participants more accurately than the training-mean baseline. The project includes test reconstruction plots and per-window reconstruction-error reports.
-
-**Still to build:** Motion Atlas’s central interaction—encode a new window, find nearest examples in latent space, and show their activity labels. Reconstruction MSE alone does not measure the quality of those matches. We should evaluate nearest-neighbor activity agreement before describing the app as an activity matcher.
-
-These outputs are an exploratory prototype, not a safety, ergonomic, or work-quality assessment. The dataset has 13 participants and its held-out test group contains two participants; conclusions about new people should be cautious.
 
 ## Project outputs
 
