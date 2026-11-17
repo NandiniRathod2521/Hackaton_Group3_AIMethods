@@ -2,6 +2,11 @@ data/
 .venv/
 __pycache__/
 .ipynb_checkpoints/
+# Ignore converted MP4 videos
+/File conversions/output_videos/
+
+# Ignore converted PNG images
+/File conversions/output_images/
 
 # model files are published on Hugging Face, not committed
 *.onnx
