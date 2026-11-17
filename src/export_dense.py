@@ -26,18 +26,31 @@ model = dense_train.Autoencoder()
 model.load_state_dict(checkpoint["model_state_dict"])
 model.eval()
 
+class DenseWithEmbedding(torch.nn.Module):
+    def __init__(self, autoencoder):
+        super().__init__()
+        self.autoencoder = autoencoder
+
+    def forward(self, x):
+        embedding = self.autoencoder.encoder(x)
+        reconstruction = self.autoencoder.decoder(embedding)
+        return embedding, reconstruction
+
+
+export_model = DenseWithEmbedding(model).eval()
+
 # Input shape: batch, time steps, sensor channels.
 example = torch.zeros(
     1, config["window"], len(config["features"]), dtype=torch.float32
 )
-onnx_path = MODEL_DIR / "autoencoder.onnx"
+onnx_path = MODEL_DIR / "model.onnx"
 
 torch.onnx.export(
-    model,
+    export_model,
     (example,),
     str(onnx_path),
     input_names=["sensor_window"],
-    output_names=["reconstruction"],
+    output_names=["embedding", "reconstruction"],
     dynamic_shapes={"x": {0: torch.export.Dim("batch")}},
     external_data=False,
 )
@@ -46,14 +59,23 @@ torch.onnx.export(
 session = ort.InferenceSession(
     str(onnx_path), providers=["CPUExecutionProvider"]
 )
+
 with torch.no_grad():
-    torch_output = model(example).numpy()
+    expected_embedding = model.encoder(example).numpy()
+    expected_reconstruction = model.decoder(
+        model.encoder(example)
+    ).numpy()
 
-onnx_output = session.run(
-    ["reconstruction"], {"sensor_window": example.numpy()}
-)[0]
+actual_embedding, actual_reconstruction = session.run(
+    ["embedding", "reconstruction"],
+    {"sensor_window": example.numpy()},
+)
 
-max_difference = float(np.max(np.abs(torch_output - onnx_output)))
-print(f"Saved: {onnx_path}")
-print(f"Maximum PyTorch/ONNX difference: {max_difference:.8f}")
-print("Outputs match:", np.allclose(torch_output, onnx_output, atol=1e-5))
+print(
+    "Embedding matches:",
+    np.allclose(expected_embedding, actual_embedding, atol=1e-5),
+)
+print(
+    "Reconstruction matches:",
+    np.allclose(expected_reconstruction, actual_reconstruction, atol=1e-5),
+)
