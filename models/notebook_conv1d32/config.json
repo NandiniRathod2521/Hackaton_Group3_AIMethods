@@ -1,0 +1,65 @@
+{
+  "model": "Conv1DAutoencoder",
+  "latent_dim": 32,
+  "window": 200,
+  "sampling_rate_hz": 100,
+  "training_stride": 100,
+  "evaluation_stride": 200,
+  "features": [
+    "trousers_Ax_g",
+    "trousers_Ay_g",
+    "trousers_Az_g",
+    "trousers_Gx_dps",
+    "trousers_Gy_dps",
+    "trousers_Gz_dps",
+    "back_Ax_g",
+    "back_Ay_g",
+    "back_Az_g",
+    "back_Gx_dps",
+    "back_Gy_dps",
+    "back_Gz_dps",
+    "hand_Ax_g",
+    "hand_Ay_g",
+    "hand_Az_g",
+    "hand_Gx_dps",
+    "hand_Gy_dps",
+    "hand_Gz_dps"
+  ],
+  "normal_activities": [
+    13,
+    14,
+    15
+  ],
+  "anomaly_activities": [
+    7,
+    8,
+    11,
+    12
+  ],
+  "train_workers": [
+    1,
+    2,
+    3,
+    4,
+    5,
+    6,
+    7,
+    8,
+    9
+  ],
+  "validation_workers": [
+    10,
+    11
+  ],
+  "test_workers": [
+    12,
+    13
+  ],
+  "threshold_percentile": 95,
+  "anomaly_threshold": 1.6176846027374268,
+  "score_method": "mean_squared_reconstruction_error",
+  "normalization": "z_score",
+  "scaler_file": "scaler.npz",
+  "onnx_file": "model.onnx",
+  "experiment": "notebook_normal_only_training"
+}
