@@ -2,11 +2,6 @@ data/
 .venv/
 __pycache__/
 .ipynb_checkpoints/
-# Ignore converted MP4 videos
-/File conversions/output_videos/
-
-# Ignore converted PNG images
-/File conversions/output_images/
 
 # model files are published on Hugging Face, not committed
 *.onnx
@@ -15,3 +10,23 @@ __pycache__/
 
 # secrets
 .env
+
+# Environment and secrets
+.env
+.env.*
+!.env.example
+
+# Python
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.venv/
+
+# Downloaded Hugging Face artifacts
+.hf_cache/
+02_model_server/model_cache/
+
+# Local personal or generated data
+File conversions.zip
+File conversions/output_videos/
+File conversions/output_images/
