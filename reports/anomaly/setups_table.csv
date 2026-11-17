@@ -1,0 +1,5 @@
+Setup,Parameters,Training time (s),Epochs run,Val MSE (normal),Test MSE (all),ROC AUC,Precision,Recall,Threshold
+"A Dense, latent 32",1884336.0,2.5,30.0,0.7674,1.1797,0.82,0.923,0.31,1.5941
+"B Conv1d, latent 32",164786.0,4.9,30.0,0.8225,1.4103,0.844,0.926,0.323,1.7134
+"C Conv1d, latent 16",113570.0,5.2,30.0,0.8828,1.4622,0.846,0.929,0.336,1.7366
+Baseline: signal energy,,,,1.4384,1.7683,0.688,,,

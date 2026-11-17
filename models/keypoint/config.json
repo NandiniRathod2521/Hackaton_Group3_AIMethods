@@ -1,0 +1,51 @@
+{
+  "model": "A Dense, latent 16",
+  "input": "keypoint_window (batch, 48, 34)",
+  "window_frames": 48,
+  "fps": 25,
+  "n_features": 34,
+  "normal_tasks": [
+    13,
+    14,
+    15
+  ],
+  "comparison_tasks": [
+    7,
+    8,
+    11,
+    12
+  ],
+  "threshold_mse": 0.6588426828384399,
+  "threshold_rule": "90th percentile of normal validation error",
+  "pmin": 0.02,
+  "preprocessing": {
+    "pmin": 0.02,
+    "max_gap_frames": 25,
+    "clip": 6.0,
+    "max_missing": 0.3,
+    "scale_floor": 0.05,
+    "normalise": "x,y minus hip centre, divided by median torso length",
+    "inference_window_stride": 48
+  },
+  "train_users": [
+    1,
+    2,
+    3,
+    4,
+    5,
+    6,
+    7,
+    8,
+    9
+  ],
+  "validation_users": [
+    10,
+    11
+  ],
+  "test_users": [
+    12,
+    13
+  ],
+  "seed": 42,
+  "torch_version": "2.15.0+cpu"
+}
