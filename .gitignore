@@ -7,3 +7,11 @@ __pycache__/
 
 # Ignore converted PNG images
 /File conversions/output_images/
+
+# model files are published on Hugging Face, not committed
+*.onnx
+*.pt
+*.npz
+
+# secrets
+.env
