@@ -2,3 +2,11 @@ data/
 .venv/
 __pycache__/
 .ipynb_checkpoints/
+
+# model files are published on Hugging Face, not committed
+*.onnx
+*.pt
+*.npz
+
+# secrets
+.env
