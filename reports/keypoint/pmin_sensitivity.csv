@@ -1,3 +1,3 @@
 pmin,Selected model (validation MSE),Normal validation MSE,Train windows,Validation windows,Test windows,Test normal,Test comparison,Test MSE (all),Test ROC AUC,Test precision,Test recall,Threshold
-0.02,"A Dense, latent 16",0.2079,1473,225,396,148,248,0.432,0.784,0.846,0.419,0.6588
-0.1,"A Dense, latent 16",0.115,546,113,181,63,118,0.496,0.858,0.923,0.61,0.2158
+0.02,"A Dense, latent 16",0.2086,1473,225,396,148,248,0.4495,0.788,0.881,0.536,0.6765
+0.1,"A Dense, latent 16",0.1151,546,113,181,63,118,0.498,0.857,0.923,0.61,0.2171

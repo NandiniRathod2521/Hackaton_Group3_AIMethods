@@ -15,7 +15,7 @@
     11,
     12
   ],
-  "threshold_mse": 0.6588426828384399,
+  "threshold_mse": 0.6764923930168152,
   "threshold_rule": "90th percentile of normal validation error",
   "pmin": 0.02,
   "preprocessing": {
@@ -47,5 +47,5 @@
     13
   ],
   "seed": 42,
-  "torch_version": "2.15.0+cpu"
+  "torch_version": "2.5.1+cpu"
 }
