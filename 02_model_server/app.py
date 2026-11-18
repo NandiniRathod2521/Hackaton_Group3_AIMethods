@@ -316,14 +316,14 @@ with gr.Blocks(title="Movement deviation analysis") as demo:
         imu_summary = gr.Markdown()
         imu_table = gr.Dataframe(label="Per-window reconstruction scores", interactive=False)
         imu_chart = gr.Plot(label="Score over time")
-        imu_button.click(_analyze_imu_ui, inputs=imu_file, outputs=[imu_summary, imu_table, imu_chart], api_visibility="private")
+        imu_button.click(_analyze_imu_ui, inputs=imu_file, outputs=[imu_summary, imu_table, imu_chart], api_name="analyze_imu", api_visibility="public")
     with gr.Tab("Keypoint CSV analysis"):
         keypoint_file = gr.File(label="Keypoint CSV", file_types=[".csv"], type="filepath")
         keypoint_button = gr.Button("Analyse", variant="primary")
         keypoint_summary = gr.Markdown()
         keypoint_table = gr.Dataframe(label="Per-window reconstruction scores", interactive=False)
         keypoint_chart = gr.Plot(label="Score over time")
-        keypoint_button.click(_analyze_keypoint_ui, inputs=keypoint_file, outputs=[keypoint_summary, keypoint_table, keypoint_chart], api_visibility="private")
+        keypoint_button.click(_analyze_keypoint_ui, inputs=keypoint_file, outputs=[keypoint_summary, keypoint_table, keypoint_chart], api_name="analyze_keypoints", api_visibility="public")
 
 
 # The Gradio mount is registered after the explicit FastAPI routes, so /health,
