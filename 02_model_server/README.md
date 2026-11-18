@@ -33,7 +33,9 @@ Raw video upload is not supported. Convert video locally to the expected keypoin
 - `POST /predict/keypoints` with `{"frames": [[[x, y, confidence], ...] ]}` containing raw frames shaped `[frames, 17, 3]` in COCO point order.
 - `GET /docs` for the interactive FastAPI schema.
 
-The prediction responses include each reconstruction score and whether it exceeds the threshold stored with the model. Keypoint responses also include approximate 2D posture indicators. Thresholds are model-specific and are never recalculated from an uploaded file.
+The prediction responses include each reconstruction score and whether it exceeds the threshold stored with the model. Keypoint responses also include approximate 2D posture indicators.
+
+Each returned window has `start_sample`, `start_seconds` and `end_seconds` for its original position in the submitted recording. Keypoint windows with more than 30% missing points are dropped, so the `window` numbers are consecutive but the start times may have gaps. For example, if frames 0–47 are dropped, the first returned window starts at frame 48 (1.92 s). Run `python -m pytest 02_model_server/test_window_starts.py` to check this with the local model files. Thresholds are model-specific and are never recalculated from an uploaded file.
 
 ## Render
 

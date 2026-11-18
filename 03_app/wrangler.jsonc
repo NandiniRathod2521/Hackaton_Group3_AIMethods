@@ -1,0 +1,17 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "motion-atlas",
+  "main": "worker/index.ts",
+  "compatibility_date": "2026-11-01",
+  "assets": {
+    "not_found_handling": "single-page-application",
+    "run_worker_first": ["/api/*"]
+  },
+  "observability": { "enabled": true },
+  "vars": {
+    // Set to the deployed Render service before `wrangler deploy` (not a secret).
+    // Local development overrides it from .dev.vars (see .dev.vars.example).
+    "RENDER_API_URL": "https://construction-safety-model-api.onrender.com"
+  }
+  // D1 for analysis summaries will be added here in the next step.
+}

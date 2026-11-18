@@ -140,6 +140,21 @@ def build_splits(data_dir, pmin=PMIN):
     }
 
 
+def preprocess_for_model_with_starts(x, y, p, mean, scale, pmin=PMIN):
+    """Like preprocess_for_model, but also returns each kept window's original start frame.
+
+    Windows with too many missing points are dropped, so the i-th returned window does not
+    necessarily start at frame i * WINDOW; `starts[i]` is its true first frame in the clip.
+    """
+    feats, valid = clean_clip(x, y, p, pmin=pmin)
+    starts = [s for s in range(0, len(feats) - WINDOW + 1, WINDOW)
+              if valid[s:s + WINDOW].mean() >= 1 - MAX_MISSING]
+    if not starts:
+        return np.zeros((0, WINDOW, N_FEAT), np.float32), np.zeros(0, dtype=int)
+    wins = np.stack([(feats[s:s + WINDOW] - mean) / scale for s in starts]).astype(np.float32)
+    return wins, np.asarray(starts, dtype=int)
+
+
 def preprocess_for_model(x, y, p, mean, scale, pmin=PMIN):
     """Deployment path: raw keypoints of ONE clip -> standardised non-overlapping windows.
 
@@ -147,11 +162,7 @@ def preprocess_for_model(x, y, p, mean, scale, pmin=PMIN):
     clipping, and train-fitted standardization as build_splits. The overlapping
     train/validation stride is training-time sampling; deployment is non-overlapping.
     """
-    feats, valid = clean_clip(x, y, p, pmin=pmin)
-    wins = [(feats[s:s + WINDOW] - mean) / scale
-            for s in range(0, len(feats) - WINDOW + 1, WINDOW)
-            if valid[s:s + WINDOW].mean() >= 1 - MAX_MISSING]
-    return np.stack(wins).astype(np.float32) if wins else np.zeros((0, WINDOW, N_FEAT), np.float32)
+    return preprocess_for_model_with_starts(x, y, p, mean, scale, pmin=pmin)[0]
 
 
 def _angle(a, b, c):

@@ -30,3 +30,12 @@ __pycache__/
 File conversions.zip
 File conversions/output_videos/
 File conversions/output_images/
+# Motion Atlas app (03_app)
+03_app/node_modules/
+03_app/dist/
+03_app/.wrangler/
+# Video-derived prototype outputs (keypoints of real people) and any local clips
+03_app/prototype_out/
+03_app/**/*.mp4
+03_app/**/*.mov
+03_app/.dev.vars

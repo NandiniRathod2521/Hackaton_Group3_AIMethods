@@ -107,6 +107,7 @@ def _prediction(scores: np.ndarray, model: dict, starts: np.ndarray) -> dict:
                 "window": int(i + 1),
                 "start_sample": int(starts[i]),
                 "start_seconds": round(float(starts[i] / model["sample_rate"]), 3),
+                "end_seconds": round(float((starts[i] + model["window"]) / model["sample_rate"]), 3),
                 "reconstruction_score": float(scores[i]),
                 "above_threshold": bool(flagged[i]),
             }
@@ -188,13 +189,13 @@ def score_keypoint_frames(raw_frames: np.ndarray, model: dict) -> dict:
     if not np.isfinite(confidence).all() or np.any((confidence < 0) | (confidence > 1)):
         raise HTTPException(status_code=422, detail="Keypoint confidence values must be finite and between 0 and 1.")
     features, valid = ku.clean_clip(raw[:, :, 0], raw[:, :, 1], confidence, pmin=model["pmin"])
-    windows = ku.preprocess_for_model(
+    # starts = each kept window's original first frame (windows with too many missing points are dropped)
+    windows, starts = ku.preprocess_for_model_with_starts(
         raw[:, :, 0], raw[:, :, 1], confidence, model["mean"], model["scale"], pmin=model["pmin"]
     )
     if not len(windows):
         raise HTTPException(status_code=422, detail="No valid keypoint windows remain. The clip may be too short or have more than 30% missing points in every window.")
     scores = _score_standardized_windows(windows, model)
-    starts = np.arange(len(windows), dtype=int) * ku.WINDOW
     result = _prediction(scores, model, starts)
     result["posture_summary"] = _posture_summary(features, valid)
     return result
