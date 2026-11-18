@@ -1,7 +1,10 @@
 // Motion Atlas Worker: serves the React app and forwards keypoints to the existing Render model API.
-// It never receives video. D1 analysis summaries are a later step; nothing is stored here yet.
+// It never receives video. Analysis summaries (never video or raw keypoints) are kept in D1; see
+// worker/history.ts. History is isolated from analysis: if D1 fails, analysis still works.
 
-export interface Env {
+import { handleHistory, type HistoryEnv } from "./history.ts";
+
+export interface Env extends HistoryEnv {
   ASSETS: Fetcher;
   /** Base URL of the Render service, e.g. https://<service>.onrender.com (no trailing slash needed). */
   RENDER_API_URL: string;
@@ -57,6 +60,15 @@ export default {
         headers: { "content-type": "application/json" },
         body: request.body,
       });
+    }
+
+    if (pathname === "/api/history" || pathname.startsWith("/api/history/")) {
+      try {
+        return await handleHistory(request, env, pathname);
+      } catch (err) {
+        console.error("history route error", err);
+        return json(500, { detail: "History request failed." });
+      }
     }
 
     if (pathname.startsWith("/api/")) return json(404, { detail: "Unknown API route." });

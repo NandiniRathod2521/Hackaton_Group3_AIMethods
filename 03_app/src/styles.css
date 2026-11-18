@@ -91,3 +91,19 @@ th { font-weight: 600; }
 .posture dl div { background: var(--surface); border: 1px solid var(--line); border-radius: 8px; padding: 10px 14px; }
 .posture dt { color: var(--ink-2); font-size: 0.85rem; }
 .posture dd { margin: 0; font-size: 1.3rem; font-weight: 600; }
+
+.save-status { margin: 0 0 12px; }
+.save-failed { background: var(--warn-bg); color: var(--warn-ink); border-radius: 6px; padding: 2px 12px 10px; }
+.save-failed p { margin: 8px 0; }
+.saved-banner { background: var(--surface); border: 1px solid var(--accent); border-radius: 8px; padding: 4px 14px 12px; margin-bottom: 12px; }
+.saved-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+.button-secondary { font: inherit; cursor: pointer; border-radius: 8px; padding: 8px 14px; border: 1px solid var(--axis); background: var(--surface); color: var(--ink); display: inline-block; }
+button:disabled { cursor: default; opacity: 0.55; }
+
+.history { border-top: 1px solid var(--line); padding-top: 8px; margin-top: 32px; }
+.history-list { list-style: none; padding: 0; margin: 0; display: flex; flex-direction: column; gap: 8px; }
+.history-list li { display: flex; gap: 8px; align-items: stretch; }
+.history-list li.selected .history-open { border-color: var(--accent); box-shadow: inset 3px 0 0 var(--accent); }
+.history-open { flex: 1; min-width: 0; display: flex; flex-wrap: wrap; gap: 4px 16px; text-align: left; font-variant-numeric: tabular-nums; }
+.history-date { font-weight: 600; }
+.history-delete { flex: none; }

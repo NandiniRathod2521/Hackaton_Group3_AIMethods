@@ -2,13 +2,17 @@
 // End-to-end check of the video flow in headless Edge against a running app
 // (`npx vite` with .dev.vars -> local or Render model API).
 //
-//   node tools/e2e_video_flow.mjs --url http://127.0.0.1:5179 --videos "<dir>" --clips "4.03.49,4.03.52" [--shots <dir>]
+//   node tools/e2e_video_flow.mjs --url http://127.0.0.1:5179 --videos "<dir>" --clips "4.03.49,4.03.52" [--shots <dir>] [--fail-save 1]
 //
 // For each clip: choose the file, wait for the result, then check
-//  - only keypoint JSON is sent (no request carries video; every POST goes to /api/analyze/keypoints)
+//  - only keypoint JSON is sent for analysis (no request carries video), plus one small history save
+//    that contains no keypoints and no file name
 //  - timeline bars and flagged moments use the API's start/end times
 //  - clicking a flagged moment (or the first bar) seeks the video to that window's start
 //  - quality warnings shown
+//  - after a reload the analysis is in History, and opening it restores the timeline and flagged moments
+// With --fail-save 1 the history save is made to fail (HTTP 500): the analysis must stay on screen
+// with a clear "not saved" message.
 import { readdir, mkdir } from "node:fs/promises";
 import { join, resolve } from "node:path";
 import { chromium } from "playwright-core";
@@ -31,8 +35,18 @@ for (const file of files) {
   console.log(`\n${clip}`);
   const page = await browser.newPage({ viewport: { width: 1000, height: 1400 } });
   const requests = [];
-  page.on("request", (r) => requests.push({ url: r.url(), method: r.method(), type: r.headers()["content-type"] ?? "", bytes: r.postDataBuffer()?.length ?? 0 }));
+  page.on("request", (r) => requests.push({
+    url: r.url(), method: r.method(), type: r.headers()["content-type"] ?? "", bytes: r.postDataBuffer()?.length ?? 0,
+    body: r.url().endsWith("/api/history") ? r.postData() : undefined,
+  }));
   page.on("pageerror", (e) => console.log(`  [page error] ${e.message}`));
+  page.on("dialog", (d) => d.accept());
+  const failSave = Boolean(args["fail-save"]);
+  if (failSave) {
+    await page.route("**/api/history", (route) => route.request().method() === "POST"
+      ? route.fulfill({ status: 500, contentType: "application/json", body: JSON.stringify({ detail: "Simulated D1 failure." }) })
+      : route.continue());
+  }
   await page.goto(args.url);
   await page.getByText("Choose a video").waitFor({ timeout: 120_000 });
 
@@ -46,9 +60,16 @@ for (const file of files) {
   // Privacy: no video bytes leave the browser.
   const origin = new URL(args.url).origin;
   const keypointUrl = `${origin}/api/analyze/keypoints`;
-  const appPosts = requests.filter((r) => r.method !== "GET" && r.url.startsWith(origin));
+  const historyUrl = `${origin}/api/history`;
+  // Wait for the automatic history save to finish (saved or failed) before counting requests.
+  await page.locator(".save-failed, .save-status:has-text('Saved to history')").first().waitFor({ timeout: 30_000 }).catch(() => undefined);
+  const appPosts = requests.filter((r) => r.method !== "GET" && r.url.startsWith(origin) && r.url !== historyUrl);
   check(clip, appPosts.length === 1 && appPosts[0].url === keypointUrl && appPosts[0].type.includes("application/json"),
-    `the app sends exactly one POST: keypoint JSON to /api/analyze/keypoints (${(appPosts[0]?.bytes / 1024).toFixed(0)} KiB)`);
+    `the app sends exactly one analysis POST: keypoint JSON to /api/analyze/keypoints (${(appPosts[0]?.bytes / 1024).toFixed(0)} KiB)`);
+  const savePosts = requests.filter((r) => r.method === "POST" && r.url === historyUrl);
+  check(clip, savePosts.length === 1 && savePosts[0].bytes < 64 * 1024 && !/"(frames|keypoints|file_?name)"\s*:|\.mp4|\.mov/i.test(savePosts[0].body ?? "")
+    && !(savePosts[0].body ?? "").includes(file),
+    `one history save with summary data only (${savePosts[0]?.bytes ?? 0} B, no keypoints or file name)`);
   check(clip, !requests.some((r) => r.url !== keypointUrl && r.bytes > 64 * 1024),
     "no other request anywhere carries more than 64 KiB");
   check(clip, !requests.some((r) => /video\//.test(r.type)), "no request has a video content type");
@@ -81,6 +102,32 @@ for (const file of files) {
   console.log(`  warnings: ${warnings.length ? warnings.map((w) => w.slice(2, 60) + "…").join(" | ") : "none"}`);
   const mainText = await page.locator(".posture dl").textContent();
   check(clip, !/knee/i.test(mainText), "knee bend is not in the main posture summary");
+
+  if (failSave) {
+    check(clip, await page.locator(".save-failed").isVisible(), "a failed save shows a 'not saved' message");
+    check(clip, await page.locator(".tiles").isVisible() && (await page.locator(".timeline .bar").count()) === api.windows.length,
+      "the analysis stays on screen when saving fails");
+  } else {
+    check(clip, await page.locator(".save-status:has-text('Saved to history')").isVisible(), "the analysis is saved to history");
+    // History survives a reload, and opening it restores the timeline and flagged moments.
+    await page.reload();
+    const row = page.locator(".history-list li").first();
+    await row.waitFor({ timeout: 30_000 });
+    check(clip, (await row.textContent()).includes(`${api.windows_above_threshold} of ${api.windows_analyzed} windows flagged`),
+      "after reload, the newest History row shows this analysis");
+    await row.locator(".history-open").click();
+    await page.locator(".saved-banner").waitFor({ timeout: 30_000 });
+    check(clip, (await page.locator(".timeline .bar").count()) === api.windows.length, "restored timeline has one bar per window");
+    const restoredStarts = await page.locator(".table-view tbody tr td:nth-child(2)").allTextContents();
+    check(clip, restoredStarts.map(Number).every((s, i) => Math.abs(s - starts[i]) < 0.006), "restored start times equal the API's");
+    check(clip, (await page.locator(".moments li").count()) === flagged.length, "restored flagged moments match");
+    if (args.shots) await page.screenshot({ path: join(args.shots, `${clip}.restored.png`), fullPage: true });
+    if (args["delete-after"]) {
+      await row.locator(".history-delete").click();
+      await page.locator(".saved-banner").waitFor({ state: "detached", timeout: 30_000 });
+      check(clip, true, "deleted the saved analysis");
+    }
+  }
   if (args.shots) await page.screenshot({ path: join(args.shots, `${clip}.png`), fullPage: true });
   await page.close();
 }

@@ -1,7 +1,11 @@
 import { useEffect, useRef, useState } from "react";
 import { analyzeKeypoints, wakeModelServer, type KeypointResult, type ScoredWindow } from "./api";
+import { HistoryPanel, type HistoryState } from "./components/HistoryPanel";
 import { ScoreTimeline } from "./components/ScoreTimeline";
 import { VideoPlayer, type VideoPlayerHandle } from "./components/VideoPlayer";
+import {
+  deleteHistory, HistoryError, listHistory, loadHistory, persistAnalysis, type HistoryItem, type SavedAnalysis,
+} from "./history";
 import { COCO_NAMES, FPS, WINDOW, framesToCsv } from "./pose/coco";
 import { createDetector, EXTRACTOR, type Detector } from "./pose/movenet";
 import { assessQuality, type Quality } from "./pose/quality";
@@ -17,8 +21,17 @@ type Stage =
   | { kind: "done" }
   | { kind: "error"; message: string };
 
+// Saving to history is separate from the analysis: a failed save never hides the result.
+type SaveState =
+  | { kind: "idle" }
+  | { kind: "saving" }
+  | { kind: "saved"; id: string }
+  | { kind: "failed"; message: string };
+
 const WINDOW_S = WINDOW / FPS;
+const HISTORY_LIMIT = 20;
 const clock = (s: number) => `${Math.floor(s / 60)}:${(s % 60).toFixed(1).padStart(4, "0")}`;
+const errText = (e: unknown) => (e instanceof Error ? e.message : String(e));
 
 export default function App() {
   const [detector, setDetector] = useState<{ detector: Detector; backend: string } | null>(null);
@@ -30,16 +43,39 @@ export default function App() {
   const [quality, setQuality] = useState<Quality | null>(null);
   const [result, setResult] = useState<KeypointResult | null>(null);
   const [showSkeleton, setShowSkeleton] = useState(true);
+  const [save, setSave] = useState<SaveState>({ kind: "idle" });
+  const [history, setHistory] = useState<HistoryState>({ kind: "loading" });
+  const [restored, setRestored] = useState<SavedAnalysis | null>(null);
+  const [historyBusy, setHistoryBusy] = useState<string | null>(null);
+  const [historyError, setHistoryError] = useState<string | null>(null);
+  const [playback, setPlayback] = useState<{ url: string; width: number; height: number } | null>(null);
   const player = useRef<VideoPlayerHandle>(null);
+  const resultSection = useRef<HTMLElement>(null);
+  const runSeq = useRef(0);
 
   useEffect(() => { createDetector().then(setDetector, (e) => setLoadError(String(e))); }, []);
   useEffect(() => () => { if (videoUrl) URL.revokeObjectURL(videoUrl); }, [videoUrl]);
+  useEffect(() => () => { if (playback) URL.revokeObjectURL(playback.url); }, [playback]);
+  useEffect(() => { refreshHistory(); }, []);
+  useEffect(() => {
+    if (restored) resultSection.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+  }, [restored]);
 
   const busy = stage.kind === "extracting" || stage.kind === "analyzing";
+
+  function refreshHistory() {
+    setHistory({ kind: "loading" });
+    listHistory().then(
+      (items) => setHistory({ kind: "ready", items }),
+      (e) => setHistory({ kind: "error", message: errText(e) }),
+    );
+  }
 
   async function run(f: File) {
     if (!detector) return;
     wakeModelServer();
+    runSeq.current += 1;
+    setRestored(null); setPlayback(null); setSave({ kind: "idle" });
     setFile(f); setExtraction(null); setQuality(null); setResult(null);
     const url = URL.createObjectURL(f);
     setVideoUrl(url);
@@ -61,17 +97,90 @@ export default function App() {
       setStage({ kind: "error", message: `The video is ${(ex.frames.length / FPS).toFixed(1)} s long; at least ${WINDOW_S.toFixed(2)} s is needed.` });
       return;
     }
+    const seq = runSeq.current;
     setStage({ kind: "analyzing" });
+    let r: KeypointResult;
     try {
-      setResult(await analyzeKeypoints(ex.frames));
-      setStage({ kind: "done" });
+      r = await analyzeKeypoints(ex.frames);
     } catch (e) {
-      setStage({ kind: "error", message: e instanceof Error ? e.message : String(e) });
+      setStage({ kind: "error", message: errText(e) });
+      return;
+    }
+    if (seq !== runSeq.current) return;
+    setResult(r);
+    setStage({ kind: "done" });
+    setRestored(null);
+    await saveResult(r, ex.frames.length / FPS);
+  }
+
+  /** Save the shown analysis to history. Only the summary and window scores/times are sent. */
+  async function saveResult(r: KeypointResult, durationS: number) {
+    const seq = runSeq.current;
+    setSave({ kind: "saving" });
+    const outcome = await persistAnalysis(r, durationS, WINDOW_S);
+    if (outcome.saved) {
+      setHistory((h) => (h.kind === "ready"
+        ? { kind: "ready", items: [outcome.item, ...h.items.filter((i) => i.id !== outcome.item.id)].slice(0, HISTORY_LIMIT) }
+        : h));
+      if (history.kind !== "ready") refreshHistory();
+    }
+    if (seq !== runSeq.current) return;   // a newer video was chosen while saving
+    setSave(outcome.saved ? { kind: "saved", id: outcome.item.id } : { kind: "failed", message: outcome.message });
+  }
+
+  function dropFromHistory(id: string) {
+    setHistory((h) => (h.kind === "ready" ? { kind: "ready", items: h.items.filter((i) => i.id !== id) } : h));
+    setRestored((r) => (r?.item.id === id ? null : r));
+    setSave((s) => (s.kind === "saved" && s.id === id ? { kind: "idle" } : s));
+  }
+
+  async function openSaved(item: HistoryItem) {
+    setHistoryBusy(item.id); setHistoryError(null);
+    try {
+      const saved = await loadHistory(item.id);
+      setPlayback(null);
+      setRestored(saved);
+    } catch (e) {
+      if (e instanceof HistoryError && e.status === 404) dropFromHistory(item.id);
+      setHistoryError(`Could not open this saved analysis: ${errText(e)}`);
+    } finally {
+      setHistoryBusy(null);
     }
   }
 
-  const flagged = result?.windows.filter((w) => w.above_threshold) ?? [];
-  const jump = (w: ScoredWindow) => player.current?.playFrom(w.start_seconds);
+  async function removeSaved(item: HistoryItem) {
+    if (!window.confirm(`Delete the saved analysis from ${new Date(item.created_at).toLocaleString()}? This cannot be undone.`)) return;
+    setHistoryBusy(item.id); setHistoryError(null);
+    try {
+      await deleteHistory(item.id);
+      dropFromHistory(item.id);
+    } catch (e) {
+      if (e instanceof HistoryError && e.status === 404) dropFromHistory(item.id);
+      else setHistoryError(`Could not delete this saved analysis: ${errText(e)}`);
+    } finally {
+      setHistoryBusy(null);
+    }
+  }
+
+  /** Play a local copy of the video next to a saved analysis. It is not uploaded or re-analysed. */
+  function openPlayback(f: File) {
+    const url = URL.createObjectURL(f);
+    const v = document.createElement("video");
+    v.preload = "metadata";
+    v.onloadedmetadata = () => setPlayback({ url, width: v.videoWidth || 16, height: v.videoHeight || 9 });
+    v.onerror = () => { URL.revokeObjectURL(url); setHistoryError("This video could not be played in the browser."); };
+    v.src = url;
+  }
+
+  // What the results section shows: a saved analysis, or the analysis of the video just chosen.
+  const view: { result: KeypointResult; durationS: number | null; frameCount: number | null } | null = restored
+    ? { result: restored.result, durationS: restored.item.duration_seconds, frameCount: null }
+    : result && extraction
+      ? { result, durationS: extraction.frames.length / FPS, frameCount: extraction.frames.length }
+      : null;
+  const canPlay = restored ? playback != null : videoUrl != null;
+  const flagged = view?.result.windows.filter((w) => w.above_threshold) ?? [];
+  const jump = (w: ScoredWindow) => { if (canPlay) player.current?.playFrom(w.start_seconds); };
 
   return (
     <main>
@@ -87,6 +196,7 @@ export default function App() {
             onChange={(e) => { const f = e.target.files?.[0]; e.target.value = ""; if (f) run(f); }} />
         </label>
         {file && <span className="muted">{file.name}</span>}
+        <a href="#history">History</a>
         {loadError && <p className="error">The pose model could not be loaded: {loadError}</p>}
       </section>
 
@@ -103,7 +213,7 @@ export default function App() {
         </div>
       )}
 
-      {extraction && videoUrl && (
+      {!restored && extraction && videoUrl && (
         <section className="limits" aria-label="Limitations">
           <p>
             <strong>One pose per frame.</strong> The analysis follows a single detected body. It does not reliably keep track of
@@ -113,32 +223,60 @@ export default function App() {
         </section>
       )}
 
-      {result && extraction && (
-        <section aria-label="Result">
+      {view && (
+        <section aria-label="Result" ref={resultSection}>
+          {restored && (
+            <div className="saved-banner">
+              <p>
+                <strong>Saved analysis</strong> · {restored.item.label} · {new Date(restored.item.created_at).toLocaleString()}
+                <br />
+                <span className="muted">The video and keypoints were not stored, so the skeleton and quality checks aren’t available.</span>
+              </p>
+              <div className="saved-actions">
+                <label className="button-secondary">
+                  {playback ? "Open a different local video" : "Open the local video to play flagged moments"}
+                  <input type="file" accept="video/*" hidden
+                    onChange={(e) => { const f = e.target.files?.[0]; e.target.value = ""; if (f) openPlayback(f); }} />
+                </label>
+                <button onClick={() => { setRestored(null); setPlayback(null); }}>
+                  {result ? "Back to current analysis" : "Close saved analysis"}
+                </button>
+              </div>
+            </div>
+          )}
+          {!restored && save.kind === "saving" && <p className="save-status muted" role="status">Saving to history…</p>}
+          {!restored && save.kind === "saved" && <p className="save-status muted" role="status">✓ Saved to history.</p>}
+          {!restored && save.kind === "failed" && (
+            <div className="save-failed save-status" role="alert">
+              <p>⚠ This analysis was <strong>not saved</strong> to history: {save.message} The results below are still complete; they’ll be lost when you leave the page.</p>
+              {result && extraction && <button onClick={() => saveResult(result, extraction.frames.length / FPS)}>Try saving again</button>}
+            </div>
+          )}
           <div className="tiles">
             <div className="tile">
               <span className="tile-label">Windows above threshold</span>
-              <span className="tile-value">{result.windows_above_threshold} of {result.windows_analyzed}</span>
-              <span className="muted">{result.percentage_above_threshold.toFixed(0)}% of scored {WINDOW_S.toFixed(2)} s windows</span>
+              <span className="tile-value">{view.result.windows_above_threshold} of {view.result.windows_analyzed}</span>
+              <span className="muted">{view.result.percentage_above_threshold.toFixed(0)}% of scored {WINDOW_S.toFixed(2)} s windows</span>
             </div>
             <div className="tile">
               <span className="tile-label">Video analysed</span>
-              <span className="tile-value">{(extraction.frames.length / FPS).toFixed(1)} s</span>
-              <span className="muted">{extraction.frames.length} frames at {FPS} fps</span>
+              <span className="tile-value">{view.durationS != null ? `${view.durationS.toFixed(1)} s` : "—"}</span>
+              <span className="muted">{view.frameCount != null ? `${view.frameCount} frames at ${FPS} fps` : "Saved summary; the video wasn’t stored"}</span>
             </div>
           </div>
-          <p className="muted">{result.interpretation} “Above threshold” means a window differs from the model’s reference movements (walking and pushing a cart) more than 90% of reference windows did.</p>
+          <p className="muted">{view.result.interpretation} “Above threshold” means a window differs from the model’s reference movements (walking and pushing a cart) more than 90% of reference windows did.</p>
 
-          <ScoreTimeline windows={result.windows} threshold={result.threshold} durationS={extraction.frames.length / FPS}
+          <ScoreTimeline windows={view.result.windows} threshold={view.result.threshold} durationS={view.durationS ?? 0}
             windowS={WINDOW_S} onSelect={jump} />
 
           {flagged.length > 0 && (
             <div className="moments">
               <h2>Flagged moments</h2>
+              {!canPlay && <p className="muted">Open your local copy of the video above to jump to these moments.</p>}
               <ul>
                 {flagged.map((w) => (
                   <li key={w.window}>
-                    <button onClick={() => jump(w)}>▶ {clock(w.start_seconds)}–{clock(w.end_seconds ?? w.start_seconds + WINDOW_S)}</button>
+                    <button disabled={!canPlay} onClick={() => jump(w)}>▶ {clock(w.start_seconds)}–{clock(w.end_seconds ?? w.start_seconds + WINDOW_S)}</button>
                     <span className="muted"> score {w.reconstruction_score.toFixed(3)}</span>
                   </li>
                 ))}
@@ -148,7 +286,14 @@ export default function App() {
         </section>
       )}
 
-      {extraction && videoUrl && (
+      {restored && playback && (
+        <section aria-label="Video">
+          <p className="muted">Local playback only: this video is not uploaded or re-analysed, so no skeleton is drawn.</p>
+          <VideoPlayer ref={player} src={playback.url} frames={[]} width={playback.width} height={playback.height} showSkeleton={false} />
+        </section>
+      )}
+
+      {!restored && extraction && videoUrl && (
         <section aria-label="Video">
           <label className="toggle">
             <input type="checkbox" checked={showSkeleton} onChange={(e) => setShowSkeleton(e.target.checked)} /> Show the skeleton used for analysis
@@ -158,9 +303,12 @@ export default function App() {
         </section>
       )}
 
-      {result && <Posture summary={result.posture_summary} />}
+      {view && <Posture summary={view.result.posture_summary} />}
 
-      {extraction && file && <Diagnostics extraction={extraction} quality={quality} backend={detector?.backend ?? "?"} fileName={file.name} />}
+      {!restored && extraction && file && <Diagnostics extraction={extraction} quality={quality} backend={detector?.backend ?? "?"} fileName={file.name} />}
+
+      <HistoryPanel state={history} selectedId={restored?.item.id ?? null} busyId={historyBusy} actionError={historyError}
+        onSelect={openSaved} onDelete={removeSaved} onRetry={refreshHistory} />
     </main>
   );
 }

@@ -12,6 +12,18 @@
     // Set to the deployed Render service before `wrangler deploy` (not a secret).
     // Local development overrides it from .dev.vars (see .dev.vars.example).
     "RENDER_API_URL": "https://construction-safety-model-api.onrender.com"
-  }
-  // D1 for analysis summaries will be added here in the next step.
+  },
+  // Saved analysis summaries (never video or raw keypoints). One binding for local dev and production:
+  // `npm run dev` and `wrangler d1 ... --local` use a local SQLite copy under .wrangler/state;
+  // `wrangler deploy` and `--remote` use the Cloudflare database with this database_id.
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "motion-atlas-history",
+      // Replace with the ID printed by `npx wrangler d1 create motion-atlas-history` (see README).
+      // Local development works with the placeholder; deploying with it fails.
+      "database_id": "REPLACE_WITH_D1_DATABASE_ID",
+      "migrations_dir": "migrations"
+    }
+  ]
 }
