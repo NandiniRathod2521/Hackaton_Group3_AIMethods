@@ -1,4 +1,5 @@
 {
+  "account_id": "4bd923873cefb96a0ce4ac36e55f156b",
   "$schema": "node_modules/wrangler/config-schema.json",
   "name": "motion-atlas",
   "main": "worker/index.ts",
@@ -22,7 +23,7 @@
       "database_name": "motion-atlas-history",
       // Replace with the ID printed by `npx wrangler d1 create motion-atlas-history` (see README).
       // Local development works with the placeholder; deploying with it fails.
-      "database_id": "REPLACE_WITH_D1_DATABASE_ID",
+      "database_id": "b9892519-661f-4d44-958a-c114541e7a9d",
       "migrations_dir": "migrations"
     }
   ]

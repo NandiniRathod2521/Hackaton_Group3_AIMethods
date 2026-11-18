@@ -1,0 +1,17 @@
+services:
+  - type: web
+    name: construction-safety-model-api
+    runtime: python
+    region: frankfurt
+    plan: free
+    rootDir: 02_model_server
+    buildCommand: pip install -r requirements.txt
+    startCommand: uvicorn app:app --host 0.0.0.0 --port $PORT
+    healthCheckPath: /health
+    envVars:
+      - key: HF_IMU_REPO
+        sync: false
+      - key: HF_KEYPOINT_REPO
+        sync: false
+      - key: HF_TOKEN
+        sync: false

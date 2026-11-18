@@ -1,0 +1,11 @@
+# The model server needs no PyTorch: the ONNX file runs with ONNX Runtime (small and fast on a CPU)
+gradio==6.32.0
+onnxruntime==1.31.1
+numpy
+pillow
+pandas
+fastapi==0.115.12
+uvicorn==0.34.2
+pydantic==2.11.4
+huggingface_hub==0.30.2
+numpy==1.26.4
