@@ -39,7 +39,9 @@ Each returned window has `start_sample`, `start_seconds` and `end_seconds` for i
 
 ## Render
 
-The Blueprint in `render.yaml` keeps `rootDir: 02_model_server`, installs `requirements.txt`, starts `uvicorn app:app --host 0.0.0.0 --port $PORT`, and checks `/health`. Set `HF_IMU_REPO` and `HF_KEYPOINT_REPO` to repositories containing each model's `model.onnx`, `scaler.npz`, and `config.json`; set `HF_TOKEN` when private repositories require it.
+The Blueprint in `render.yaml` keeps `rootDir: 02_model_server`, installs `requirements.txt`, starts `uvicorn app:app --host 0.0.0.0 --port $PORT`, and checks `/health`. Set `HF_IMU_REPO` and `HF_KEYPOINT_REPO` to repositories containing each model's `model.onnx`, `scaler.npz`, and `config.json`; set `HF_TOKEN` when private repositories require it. If a repo stores files in a subfolder (for example `keypoint/model.onnx`), the loader uses a folder named after the model kind (`imu/` or `keypoint/`) automatically, or the folder named in `HF_IMU_SUBFOLDER` / `HF_KEYPOINT_SUBFOLDER`. Each `config.json` must contain the validation-derived threshold as a top-level `threshold_mse` (or `anomaly_threshold`) number; loading fails with an explicit error otherwise.
+
+`/health` loads each model and returns `{"status": "ok" | "degraded", "models": {"imu": {"loaded", "threshold", "error"}, "keypoint": {...}}}`, so a missing threshold or unreadable model shows up there as `loaded: false` with the error message.
 
 After deployment, open `https://<service-name>.onrender.com/` for the interface and `https://<service-name>.onrender.com/docs` for API docs. The health endpoint is `https://<service-name>.onrender.com/health`.
 

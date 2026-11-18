@@ -20,7 +20,7 @@ import pandas as pd
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel, Field
 
-from model_loader import get_model_directory, model_is_available
+from model_loader import get_model_directory, model_is_available, read_threshold
 
 ROOT = Path(__file__).resolve().parents[1]
 KEYPOINT_HELPER = Path(__file__).resolve().parent / "keypoint_utils.py"
@@ -51,9 +51,7 @@ def load_model(kind: str) -> dict:
         with np.load(directory / "scaler.npz") as scaler_file:
             mean = np.asarray(scaler_file["mean"], dtype=np.float32)
             scale = np.asarray(scaler_file["scale"], dtype=np.float32)
-        threshold = config.get("threshold_mse", config.get("anomaly_threshold"))
-        if threshold is None:
-            raise ValueError("config.json does not contain the trained anomaly threshold")
+        threshold = read_threshold(config, directory / "config.json")
         session = ort.InferenceSession(
             str(directory / "model.onnx"), providers=["CPUExecutionProvider"]
         )
@@ -274,14 +272,23 @@ app = FastAPI(
 )
 
 
+def _model_health(kind: str) -> dict:
+    """Actually load the model (cached after first success) and report its threshold."""
+    if not model_is_available(kind):
+        return {"loaded": False, "threshold": None, "error": "model files are not configured"}
+    try:
+        model = load_model(kind)
+    except Exception as exc:  # report, don't crash the health endpoint
+        return {"loaded": False, "threshold": None, "error": str(exc)}
+    return {"loaded": True, "threshold": model["threshold"], "error": None}
+
+
 @app.get("/health")
 def health():
+    models = {kind: _model_health(kind) for kind in ("imu", "keypoint")}
     return {
-        "status": "running",
-        "models": {
-            "imu": model_is_available("imu"),
-            "keypoint": model_is_available("keypoint"),
-        },
+        "status": "ok" if all(m["loaded"] for m in models.values()) else "degraded",
+        "models": models,
     }
 
 
