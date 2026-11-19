@@ -1,5 +1,5 @@
 import { FPS, type Frame } from "./coco";
-import { detectFrame, type Detector } from "./movenet";
+import { detectFrame, detectMulti, type DetectedPose, type Detector } from "./movenet";
 
 export interface VideoExtraction {
   frames: Frame[];
@@ -105,17 +105,25 @@ async function estimateFrameDuration(video: RVFCVideo): Promise<number> {
   return cluster[Math.floor(cluster.length / 2)];
 }
 
+interface SampledVideo {
+  mediaTimes: (number | null)[];
+  width: number;
+  height: number;
+  durationS: number;
+  sourceFrameS: number;
+  ticks: number;
+}
+
 /**
  * Sample a local video at 25 fps the way video_to_keypoints.py does: for output tick k take the
- * source frame nearest to k/25 s (seek to k/25 + half a source frame, which shows that frame).
- * The video stays in the browser; only keypoints come out.
+ * source frame nearest to k/25 s (seek to k/25 + half a source frame, which shows that frame), draw
+ * it to a canvas and hand that canvas to `onFrame`. The video stays in the browser.
  */
-export async function extractVideo(
+async function sampleFrames(
   src: string,
-  detector: Detector,
+  onFrame: (canvas: HTMLCanvasElement, k: number, timestampMs: number) => Promise<void>,
   onProgress?: (done: number, total: number) => void,
-): Promise<VideoExtraction> {
-  const t0 = performance.now();
+): Promise<SampledVideo> {
   const video = document.createElement("video") as RVFCVideo;
   video.muted = true;
   video.playsInline = true;
@@ -134,26 +142,66 @@ export async function extractVideo(
   canvas.height = height;
   const ctx = canvas.getContext("2d", { willReadFrequently: true })!;
 
-  detector.reset();
-  const frames: Frame[] = [];
-  const detection: number[] = [];
   const mediaTimes: (number | null)[] = [];
-  let nameMismatches = 0;
   for (let k = 0; k < ticks; k++) {
     const target = Math.min(k / FPS + frameS / 2 - 1e-4, durationS - 1e-3);
     const shown = await seek(video, Math.max(0, target));   // null = no new frame (same frame still shown)
     ctx.drawImage(video, 0, 0, width, height);
-    const r = await detectFrame(detector, canvas, (k * 1000) / FPS);
-    frames.push(r.frame);
-    detection.push(r.detection);
+    await onFrame(canvas, k, (k * 1000) / FPS);
     mediaTimes.push(shown);
-    if (r.nameMismatch) nameMismatches++;
     onProgress?.(k + 1, ticks);
   }
   video.removeAttribute("src");
   video.load();
+  return { mediaTimes, width, height, durationS, sourceFrameS: frameS, ticks };
+}
+
+/** Single-person extraction (the default analysis): one pose per frame. */
+export async function extractVideo(
+  src: string,
+  detector: Detector,
+  onProgress?: (done: number, total: number) => void,
+): Promise<VideoExtraction> {
+  const t0 = performance.now();
+  detector.reset();
+  const frames: Frame[] = [];
+  const detection: number[] = [];
+  let nameMismatches = 0;
+  const v = await sampleFrames(src, async (canvas, _k, ts) => {
+    const r = await detectFrame(detector, canvas, ts);
+    frames.push(r.frame);
+    detection.push(r.detection);
+    if (r.nameMismatch) nameMismatches++;
+  }, onProgress);
   return {
-    frames, detection, mediaTimes, width, height, durationS, sourceFrameS: frameS,
-    nameMismatches, elapsedMs: performance.now() - t0,
+    frames, detection, mediaTimes: v.mediaTimes, width: v.width, height: v.height, durationS: v.durationS,
+    sourceFrameS: v.sourceFrameS, nameMismatches, elapsedMs: performance.now() - t0,
+  };
+}
+
+export interface MultiExtraction {
+  poses: DetectedPose[][];     // per frame, every detected person with its tracker ID
+  mediaTimes: (number | null)[];
+  width: number;
+  height: number;
+  durationS: number;
+  sourceFrameS: number;
+  elapsedMs: number;
+}
+
+/** EXPERIMENTAL multi-person extraction: every detected person per frame, with tracker IDs. */
+export async function extractVideoMulti(
+  src: string,
+  detector: Detector,
+  onProgress?: (done: number, total: number) => void,
+): Promise<MultiExtraction> {
+  const t0 = performance.now();
+  // No detector.reset() here: MoveNet MultiPose's reset() touches single-pose smoothing filters it
+  // never created and throws. Pass a freshly created detector for each clip instead.
+  const poses: DetectedPose[][] = [];
+  const v = await sampleFrames(src, async (canvas, _k, ts) => { poses.push(await detectMulti(detector, canvas, ts)); }, onProgress);
+  return {
+    poses, mediaTimes: v.mediaTimes, width: v.width, height: v.height, durationS: v.durationS,
+    sourceFrameS: v.sourceFrameS, elapsedMs: performance.now() - t0,
   };
 }

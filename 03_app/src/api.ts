@@ -39,8 +39,14 @@ export async function analyzeKeypoints(frames: Frame[]): Promise<KeypointResult>
     body,
   });
   const data = await res.json().catch(() => null);
-  if (!res.ok) throw new Error(errorMessage(res.status, data));
+  if (!res.ok) throw new ApiError(errorMessage(res.status, data), res.status);
   return data as KeypointResult;
+}
+
+/** A failed analysis request; `status` is the HTTP status (422 = the input had no scoreable window). */
+export class ApiError extends Error {
+  status: number;
+  constructor(message: string, status: number) { super(message); this.status = status; }
 }
 
 function errorMessage(status: number, data: unknown): string {

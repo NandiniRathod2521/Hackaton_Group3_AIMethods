@@ -44,3 +44,37 @@ export async function detectFrame(detector: Detector, input: DetectorInput, time
   });
   return { frame, detection: pose.score ?? 0, nameMismatch };
 }
+
+// ---------------------------------------------------------------------------------------------
+// EXPERIMENTAL multi-person mode: MoveNet MultiPose Lightning (up to 6 people) with the library's
+// tracker, which gives each detected person an ID that persists across frames while it can.
+// Not validated against the training data's detector; see prototype_out/multipose_validation.md.
+
+export type TrackerKind = "boundingBox" | "keypoint";
+export interface MultiSettings { maxDimension: number; tracker: TrackerKind }
+export const MULTI_EXTRACTOR = "movenet-multipose-lightning-v1";
+
+export async function createMultiDetector(s: MultiSettings): Promise<Detector> {
+  await tf.setBackend("webgl").catch(() => false);
+  await tf.ready();
+  return poseDetection.createDetector(poseDetection.SupportedModels.MoveNet, {
+    modelType: poseDetection.movenet.modelType.MULTIPOSE_LIGHTNING,
+    enableSmoothing: false,
+    enableTracking: true,
+    trackerType: s.tracker === "keypoint" ? poseDetection.TrackerType.Keypoint : poseDetection.TrackerType.BoundingBox,
+    multiPoseMaxDimension: s.maxDimension,
+  });
+}
+
+export interface DetectedPose { id: number; score: number; kp: Frame }
+
+export async function detectMulti(detector: Detector, input: DetectorInput, timestampMs: number): Promise<DetectedPose[]> {
+  const poses = await detector.estimatePoses(input, undefined, timestampMs);
+  return poses
+    .filter((p) => p.keypoints.length === COCO_NAMES.length && p.keypoints.every((kp, i) => kp.name === COCO_NAMES[i]))
+    .map((p) => ({
+      id: p.id ?? -1,
+      score: p.score ?? 0,
+      kp: p.keypoints.map((kp) => [kp.x, kp.y, Math.min(1, Math.max(0, kp.score ?? 0))]) as Frame,
+    }));
+}

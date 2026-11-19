@@ -334,3 +334,28 @@ input:focus-visible, a:focus-visible {
 @media print {
   .app-header, [role="tabpanel"][hidden], .planner-form, .draft-actions, .block-actions, .limits-card { display: none !important; }
 }
+
+/* ---------- Experimental multi-person mode ---------- */
+.mode-switch { margin: 4px 0 12px; }
+.mode-switch .check { font-weight: 600; }
+.pill-exp { background: #fff1e6; color: #a2470b; border: 1px solid #f5b98a; margin-left: 0; margin-right: 6px; }
+.multi-settings { display: flex; flex-wrap: wrap; gap: 8px 14px; align-items: flex-end; margin-top: 6px; padding: 12px; border: 1px dashed var(--axis); border-radius: 12px; }
+.multi-settings .field-note { flex: 1 1 260px; margin: 0; }
+.experimental-banner { display: flex; gap: 10px; align-items: flex-start; padding: 12px 14px; border-radius: 12px; background: var(--warn-bg); color: var(--warn-ink); margin-bottom: 12px; }
+.experimental-banner p { margin: 0; font-size: 0.9rem; }
+.track-picker { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 8px; margin: 12px 0; }
+.track-chip { display: flex; gap: 10px; align-items: center; text-align: left; border-radius: 12px; padding: 10px 12px; min-height: 56px; }
+.track-chip.on { border-color: var(--accent); box-shadow: inset 0 0 0 2px var(--accent); }
+.track-chip.muted-chip .track-chip-text span { color: var(--muted); }
+.track-swatch { flex: none; width: 32px; height: 32px; border-radius: 8px; display: grid; place-items: center; font-weight: 800; color: #000; border: 2px solid rgb(0 0 0 / 0.6); }
+.track-chip-text { display: flex; flex-direction: column; min-width: 0; font-size: 0.85rem; }
+.track-chip-text strong { font-size: 0.95rem; }
+.track-detail h2 { margin-top: 8px; }
+.track-warnings { background: var(--warn-bg); color: var(--warn-ink); border-radius: 10px; padding: 4px 14px 8px; margin-bottom: 12px; font-size: 0.9rem; }
+.track-warnings p { margin: 6px 0 2px; }
+.track-warnings ul { margin: 0; padding-left: 4px; list-style: none; }
+.track-warnings li + li { margin-top: 4px; }
+.not-scored { background: var(--surface); border: 1px solid var(--line); border-left: 4px solid var(--axis); border-radius: 10px; padding: 10px 14px; }
+.overlay-note { font-size: 0.85rem; margin: 0 0 8px; }
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) .pill-exp { background: #3a2410; color: #ffc49a; border-color: #8a4b1c; } }
+:root[data-theme="dark"] .pill-exp { background: #3a2410; color: #ffc49a; border-color: #8a4b1c; }

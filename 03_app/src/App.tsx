@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { analyzeKeypoints, wakeModelServer, type KeypointResult, type ScoredWindow } from "./api";
 import { HistoryPanel, type HistoryState } from "./components/HistoryPanel";
+import { MultiPersonAnalysis } from "./components/MultiPersonAnalysis";
 import { SchedulePlanner, type AnalysisContext } from "./components/SchedulePlanner";
 import { ScoreTimeline } from "./components/ScoreTimeline";
 import { panelId, tabId, Tabs } from "./components/Tabs";
@@ -11,7 +12,7 @@ import {
   deleteHistory, HistoryError, listHistory, loadHistory, persistAnalysis, type HistoryItem, type SavedAnalysis,
 } from "./history";
 import { COCO_NAMES, FPS, WINDOW, framesToCsv } from "./pose/coco";
-import { createDetector, EXTRACTOR, type Detector } from "./pose/movenet";
+import { createDetector, EXTRACTOR, type Detector, type MultiSettings, type TrackerKind } from "./pose/movenet";
 import { assessQuality, type Quality } from "./pose/quality";
 import { extractVideo, type VideoExtraction } from "./pose/sampleVideo";
 import { minRecordSeconds } from "./recording";
@@ -36,6 +37,8 @@ type SaveState =
 
 const WINDOW_S = WINDOW / FPS;
 const MIN_RECORD_S = minRecordSeconds(WINDOW_S);
+// Experimental multi-person defaults, chosen on the 13 validation clips (prototype_out/multipose_eval).
+const DEFAULT_MULTI: MultiSettings = { maxDimension: 256, tracker: "boundingBox" };
 const HISTORY_LIMIT = 20;
 const clock = (s: number) => `${Math.floor(s / 60)}:${(s % 60).toFixed(1).padStart(4, "0")}`;
 const errText = (e: unknown) => (e instanceof Error ? e.message : String(e));
@@ -61,6 +64,10 @@ export default function App() {
   const runSeq = useRef(0);
   const [recording, setRecording] = useState(false);
   const [tab, setTab] = useState<"analysis" | "schedule">("analysis");
+  const [multiMode, setMultiMode] = useState(false);
+  const [multiSettings, setMultiSettings] = useState<MultiSettings>(DEFAULT_MULTI);
+  const [multiFile, setMultiFile] = useState<File | null>(null);
+  const [multiBusy, setMultiBusy] = useState(false);
   const fileInput = useRef<HTMLInputElement>(null);
   const recordButton = useRef<HTMLButtonElement>(null);
 
@@ -84,6 +91,11 @@ export default function App() {
 
   async function run(f: File) {
     if (!detector) return;
+    if (multiMode) {   // experimental: separate analysis per tracked person, nothing saved to History
+      wakeModelServer();
+      setMultiFile(f);
+      return;
+    }
     wakeModelServer();
     runSeq.current += 1;
     setRestored(null); setPlayback(null); setSave({ kind: "idle" });
@@ -149,6 +161,7 @@ export default function App() {
     setHistoryBusy(item.id); setHistoryError(null);
     try {
       const saved = await loadHistory(item.id);
+      setMultiMode(false);   // History only holds single-person analyses
       setPlayback(null);
       setRestored(saved);
     } catch (e) {
@@ -214,7 +227,7 @@ export default function App() {
   const scheduleContext: AnalysisContext | null = viewResult
     ? { flagged: trainedCount, total: viewResult.windows.length, durationS: view?.durationS ?? null, saved: restored != null }
     : null;
-  const activity = recording ? " · recording" : busy ? " · working" : "";
+  const activity = recording ? " · recording" : busy || multiBusy ? " · working" : "";
 
   return (
     <main>
@@ -236,18 +249,47 @@ export default function App() {
       <div role="tabpanel" id={panelId("analysis")} aria-labelledby={tabId("analysis")} hidden={tab !== "analysis"}>
 
       <section className="picker">
-        <button className="button" disabled={!detector || busy || recording} onClick={() => fileInput.current?.click()}>
+        <button className="button" disabled={!detector || busy || multiBusy || recording} onClick={() => fileInput.current?.click()}>
           {detector ? "Choose a video" : "Loading pose model…"}
         </button>
-        <input ref={fileInput} type="file" accept="video/*" disabled={!detector || busy || recording} hidden
+        <input ref={fileInput} type="file" accept="video/*" disabled={!detector || busy || multiBusy || recording} hidden
           onChange={(e) => { const f = e.target.files?.[0]; e.target.value = ""; if (f) run(f); }} />
-        <button ref={recordButton} className="button" disabled={!detector || busy || recording}
+        <button ref={recordButton} className="button" disabled={!detector || busy || multiBusy || recording}
           aria-expanded={recording} onClick={() => setRecording(true)}>
           Record and analyze
         </button>
-        {file && <span className="muted">{file.name}</span>}
+        {(multiMode ? multiFile : file) && <span className="muted">{(multiMode ? multiFile : file)!.name}</span>}
         <a href="#history">History</a>
         {loadError && <p className="error">The pose model could not be loaded: {loadError}</p>}
+      </section>
+
+      <section className="mode-switch" aria-label="Analysis mode">
+        <label className="check">
+          <input type="checkbox" checked={multiMode} disabled={busy || multiBusy || recording}
+            onChange={(e) => setMultiMode(e.target.checked)} />
+          <span><span className="pill pill-exp">Experimental</span> Analyse several people separately</span>
+        </label>
+        {multiMode && (
+          <div className="multi-settings">
+            <label className="field narrow"><span>Detector input size</span>
+              <select value={multiSettings.maxDimension} disabled={multiBusy}
+                onChange={(e) => setMultiSettings((s) => ({ ...s, maxDimension: Number(e.target.value) }))}>
+                {[256, 320, 384, 512].map((d) => <option key={d} value={d}>{d} px{d === DEFAULT_MULTI.maxDimension ? " (default)" : ""}</option>)}
+              </select>
+            </label>
+            <label className="field narrow"><span>Tracker</span>
+              <select value={multiSettings.tracker} disabled={multiBusy}
+                onChange={(e) => setMultiSettings((s) => ({ ...s, tracker: e.target.value as TrackerKind }))}>
+                <option value="boundingBox">Bounding box{DEFAULT_MULTI.tracker === "boundingBox" ? " (default)" : ""}</option>
+                <option value="keypoint">Keypoint{DEFAULT_MULTI.tracker === "keypoint" ? " (default)" : ""}</option>
+              </select>
+            </label>
+            <p className="muted field-note">
+              Larger sizes can find smaller people but on our test clips also split one person into several tracks; no setting worked best on every clip.
+              Changing a setting re-runs the current video.
+            </p>
+          </div>
+        )}
       </section>
 
       {recording && (
@@ -256,6 +298,9 @@ export default function App() {
           onCancel={() => { setRecording(false); requestAnimationFrame(() => recordButton.current?.focus()); }} />
       )}
 
+      {multiMode && multiFile && <MultiPersonAnalysis file={multiFile} settings={multiSettings} onBusy={setMultiBusy} />}
+
+      <div hidden={multiMode}>
       {stage.kind === "extracting" && (
         <p role="status">Finding body keypoints… {stage.total ? `${stage.done} / ${stage.total} frames` : "opening video"}</p>
       )}
@@ -380,6 +425,8 @@ export default function App() {
       {view && <Posture summary={view.result.posture_summary} />}
 
       {!restored && extraction && file && <Diagnostics extraction={extraction} quality={quality} backend={detector?.backend ?? "?"} fileName={file.name} />}
+
+      </div>
 
       <HistoryPanel state={history} selectedId={restored?.item.id ?? null} busyId={historyBusy} actionError={historyError}
         onSelect={openSaved} onDelete={removeSaved} onRetry={refreshHistory} />

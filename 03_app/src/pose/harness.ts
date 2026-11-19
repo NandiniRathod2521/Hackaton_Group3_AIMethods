@@ -1,7 +1,7 @@
 // Test hook for tools/browser_extract.mjs: runs the same browser code on (a) pre-decoded
 // frames and (b) the original video, so detector and sampling can be checked separately.
 import { framesToCsv, type Frame } from "./coco";
-import { createDetector, detectFrame, EXTRACTOR, type Detector } from "./movenet";
+import { createDetector, createMultiDetector, detectFrame, detectMulti, EXTRACTOR, type Detector, type MultiSettings } from "./movenet";
 import { extractVideo } from "./sampleVideo";
 
 let detectorPromise: Promise<{ detector: Detector; backend: string }> | null = null;
@@ -51,7 +51,25 @@ async function extractVideoUrl(url: string) {
   }
 }
 
+/** EXPERIMENTAL: MoveNet MultiPose with tracking on the same JPEG frames (tools/multipose_eval.mjs). */
+async function extractImagesMulti(base: string, ticks: number, settings: MultiSettings) {
+  const detector = await createMultiDetector(settings);
+  const t0 = performance.now();
+  const poses = [];
+  try {
+    for (let k = 0; k < ticks; k++) {
+      const blob = await (await fetch(`${base}/${String(k).padStart(6, "0")}.jpg`)).blob();
+      const bitmap = await createImageBitmap(blob);
+      poses.push(await detectMulti(detector, bitmap, (k * 1000) / 25));
+      bitmap.close();
+    }
+  } finally {
+    detector.dispose();
+  }
+  return { poses, elapsedMs: performance.now() - t0 };
+}
+
 declare global {
   interface Window { __motionAtlas?: unknown }
 }
-window.__motionAtlas = { info, extractImages, extractVideoUrl };
+window.__motionAtlas = { info, extractImages, extractImagesMulti, extractVideoUrl };
