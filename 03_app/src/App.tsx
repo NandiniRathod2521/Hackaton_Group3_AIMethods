@@ -1,7 +1,10 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { analyzeKeypoints, wakeModelServer, type KeypointResult, type ScoredWindow } from "./api";
 import { HistoryPanel, type HistoryState } from "./components/HistoryPanel";
+import { SchedulePlanner, type AnalysisContext } from "./components/SchedulePlanner";
 import { ScoreTimeline } from "./components/ScoreTimeline";
+import { panelId, tabId, Tabs } from "./components/Tabs";
+import { ThresholdControl } from "./components/ThresholdControl";
 import { VideoPlayer, type VideoPlayerHandle } from "./components/VideoPlayer";
 import { VideoRecorder } from "./components/VideoRecorder";
 import {
@@ -12,6 +15,7 @@ import { createDetector, EXTRACTOR, type Detector } from "./pose/movenet";
 import { assessQuality, type Quality } from "./pose/quality";
 import { extractVideo, type VideoExtraction } from "./pose/sampleVideo";
 import { minRecordSeconds } from "./recording";
+import { clampThreshold, classify, isTrained, sliderRange } from "./threshold";
 
 // Video-first keypoint analysis. The video stays in this browser: MoveNet extracts one pose per
 // frame here, and only the keypoints are sent to the Worker -> Render model API.
@@ -56,6 +60,7 @@ export default function App() {
   const resultSection = useRef<HTMLElement>(null);
   const runSeq = useRef(0);
   const [recording, setRecording] = useState(false);
+  const [tab, setTab] = useState<"analysis" | "schedule">("analysis");
   const fileInput = useRef<HTMLInputElement>(null);
   const recordButton = useRef<HTMLButtonElement>(null);
 
@@ -185,15 +190,50 @@ export default function App() {
       ? { result, durationS: extraction.frames.length / FPS, frameCount: extraction.frames.length }
       : null;
   const canPlay = restored ? playback != null : videoUrl != null;
-  const flagged = view?.result.windows.filter((w) => w.above_threshold) ?? [];
+
+  // Exploratory threshold (display only): starts at the trained threshold for every result shown,
+  // and never changes the scores, the trained threshold, the API, or what is saved to History.
+  const viewResult = view?.result ?? null;
+  const [userThreshold, setUserThreshold] = useState<number | null>(null);
+  useEffect(() => { setUserThreshold(null); }, [viewResult]);
+  const trained = viewResult?.threshold ?? 0;
+  const range = useMemo(
+    () => sliderRange(viewResult?.windows.map((w) => w.reconstruction_score) ?? [], trained),
+    [viewResult, trained],
+  );
+  const shownThreshold = userThreshold ?? trained;
+  const custom = viewResult != null && !isTrained(shownThreshold, trained);
+  const cls = useMemo(
+    () => classify(viewResult?.windows ?? [], shownThreshold, trained),
+    [viewResult, shownThreshold, trained],
+  );
+  const trainedCount = viewResult?.windows.filter((w) => w.above_threshold).length ?? 0;
+  const flagged = viewResult?.windows.filter((_, i) => cls.flagged[i]) ?? [];
   const jump = (w: ScoredWindow) => { if (canPlay) player.current?.playFrom(w.start_seconds); };
+  // Optional context for the planner: trained-threshold counts only, never the exploratory value.
+  const scheduleContext: AnalysisContext | null = viewResult
+    ? { flagged: trainedCount, total: viewResult.windows.length, durationS: view?.durationS ?? null, saved: restored != null }
+    : null;
+  const activity = recording ? " · recording" : busy ? " · working" : "";
 
   return (
     <main>
-      <header>
-        <h1>Motion Atlas</h1>
-        <p className="muted">Video movement analysis. Your video is processed in this browser and is never uploaded; only body keypoints are sent for scoring.</p>
+      <header className="app-header">
+        <div className="app-header-glow" aria-hidden="true" />
+        <div className="brand">
+          <span className="brand-mark" aria-hidden="true" />
+          <h1>Motion Atlas</h1>
+        </div>
+        <p className="app-tagline">
+          {tab === "analysis"
+            ? "Video movement analysis. Your video is processed in this browser and is never uploaded; only body keypoints are sent for scoring."
+            : "Draft a shift plan with regular breaks. It stays on this page and isn’t saved or sent anywhere."}
+        </p>
+        <Tabs label="Motion Atlas sections" selected={tab} onSelect={(id) => setTab(id as "analysis" | "schedule")}
+          tabs={[{ id: "analysis", label: <>Analysis{activity && <span className="tab-activity">{activity}</span>}</> }, { id: "schedule", label: "Schedule" }]} />
       </header>
+
+      <div role="tabpanel" id={panelId("analysis")} aria-labelledby={tabId("analysis")} hidden={tab !== "analysis"}>
 
       <section className="picker">
         <button className="button" disabled={!detector || busy || recording} onClick={() => fileInput.current?.click()}>
@@ -269,10 +309,18 @@ export default function App() {
             </div>
           )}
           <div className="tiles">
+            <div className={`tile tile-primary ${custom ? "is-custom" : ""}`}>
+              <span className="tile-label">Windows above {custom ? "your threshold" : "threshold"}</span>
+              <span className="tile-value">{cls.count} <span className="tile-of">of {view.result.windows.length}</span></span>
+              <span className="muted">
+                {cls.percent.toFixed(0)}% of scored {WINDOW_S.toFixed(2)} s windows
+                {custom && ` · ${trainedCount} at the trained threshold`}
+              </span>
+            </div>
             <div className="tile">
-              <span className="tile-label">Windows above threshold</span>
-              <span className="tile-value">{view.result.windows_above_threshold} of {view.result.windows_analyzed}</span>
-              <span className="muted">{view.result.percentage_above_threshold.toFixed(0)}% of scored {WINDOW_S.toFixed(2)} s windows</span>
+              <span className="tile-label">Trained threshold</span>
+              <span className="tile-value">{trained.toFixed(3)}</span>
+              <span className="muted">Set during model validation; fixed</span>
             </div>
             <div className="tile">
               <span className="tile-label">Video analysed</span>
@@ -280,14 +328,24 @@ export default function App() {
               <span className="muted">{view.frameCount != null ? `${view.frameCount} frames at ${FPS} fps` : "Saved summary; the video wasn’t stored"}</span>
             </div>
           </div>
-          <p className="muted">{view.result.interpretation} “Above threshold” means a window differs from the model’s reference movements (walking and pushing a cart) more than 90% of reference windows did.</p>
+          <p className="muted">
+            {view.result.interpretation} At the trained threshold, “above threshold” means a window differs from the model’s reference
+            movements (walking and pushing a cart) more than 90% of reference windows did.
+          </p>
 
-          <ScoreTimeline windows={view.result.windows} threshold={view.result.threshold} durationS={view.durationS ?? 0}
-            windowS={WINDOW_S} onSelect={jump} />
+          <ScoreTimeline windows={view.result.windows} trainedThreshold={trained} threshold={shownThreshold}
+            flagged={cls.flagged} durationS={view.durationS ?? 0} windowS={WINDOW_S} canPlay={canPlay} onSelect={jump} />
 
+          <ThresholdControl value={shownThreshold} trained={trained} range={range} count={cls.count}
+            total={view.result.windows.length} trainedCount={trainedCount}
+            onChange={(v) => setUserThreshold(clampThreshold(v, range))} />
+
+          {flagged.length === 0 && (
+            <p className="moments-empty muted">No windows are above {custom ? "your" : "the trained"} threshold.</p>
+          )}
           {flagged.length > 0 && (
             <div className="moments">
-              <h2>Flagged moments</h2>
+              <h2>Flagged moments{custom && <span className="pill pill-custom">your threshold</span>}</h2>
               {!canPlay && <p className="muted">Open your local copy of the video above to jump to these moments.</p>}
               <ul>
                 {flagged.map((w) => (
@@ -325,6 +383,11 @@ export default function App() {
 
       <HistoryPanel state={history} selectedId={restored?.item.id ?? null} busyId={historyBusy} actionError={historyError}
         onSelect={openSaved} onDelete={removeSaved} onRetry={refreshHistory} />
+      </div>
+
+      <div role="tabpanel" id={panelId("schedule")} aria-labelledby={tabId("schedule")} hidden={tab !== "schedule"}>
+        <SchedulePlanner analysis={scheduleContext} />
+      </div>
     </main>
   );
 }
