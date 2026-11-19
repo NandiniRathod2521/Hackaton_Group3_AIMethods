@@ -3,6 +3,7 @@ import { analyzeKeypoints, wakeModelServer, type KeypointResult, type ScoredWind
 import { HistoryPanel, type HistoryState } from "./components/HistoryPanel";
 import { ScoreTimeline } from "./components/ScoreTimeline";
 import { VideoPlayer, type VideoPlayerHandle } from "./components/VideoPlayer";
+import { VideoRecorder } from "./components/VideoRecorder";
 import {
   deleteHistory, HistoryError, listHistory, loadHistory, persistAnalysis, type HistoryItem, type SavedAnalysis,
 } from "./history";
@@ -10,6 +11,7 @@ import { COCO_NAMES, FPS, WINDOW, framesToCsv } from "./pose/coco";
 import { createDetector, EXTRACTOR, type Detector } from "./pose/movenet";
 import { assessQuality, type Quality } from "./pose/quality";
 import { extractVideo, type VideoExtraction } from "./pose/sampleVideo";
+import { minRecordSeconds } from "./recording";
 
 // Video-first keypoint analysis. The video stays in this browser: MoveNet extracts one pose per
 // frame here, and only the keypoints are sent to the Worker -> Render model API.
@@ -29,6 +31,7 @@ type SaveState =
   | { kind: "failed"; message: string };
 
 const WINDOW_S = WINDOW / FPS;
+const MIN_RECORD_S = minRecordSeconds(WINDOW_S);
 const HISTORY_LIMIT = 20;
 const clock = (s: number) => `${Math.floor(s / 60)}:${(s % 60).toFixed(1).padStart(4, "0")}`;
 const errText = (e: unknown) => (e instanceof Error ? e.message : String(e));
@@ -52,6 +55,9 @@ export default function App() {
   const player = useRef<VideoPlayerHandle>(null);
   const resultSection = useRef<HTMLElement>(null);
   const runSeq = useRef(0);
+  const [recording, setRecording] = useState(false);
+  const fileInput = useRef<HTMLInputElement>(null);
+  const recordButton = useRef<HTMLButtonElement>(null);
 
   useEffect(() => { createDetector().then(setDetector, (e) => setLoadError(String(e))); }, []);
   useEffect(() => () => { if (videoUrl) URL.revokeObjectURL(videoUrl); }, [videoUrl]);
@@ -190,15 +196,25 @@ export default function App() {
       </header>
 
       <section className="picker">
-        <label className="button">
+        <button className="button" disabled={!detector || busy || recording} onClick={() => fileInput.current?.click()}>
           {detector ? "Choose a video" : "Loading pose model…"}
-          <input type="file" accept="video/*" disabled={!detector || busy} hidden
-            onChange={(e) => { const f = e.target.files?.[0]; e.target.value = ""; if (f) run(f); }} />
-        </label>
+        </button>
+        <input ref={fileInput} type="file" accept="video/*" disabled={!detector || busy || recording} hidden
+          onChange={(e) => { const f = e.target.files?.[0]; e.target.value = ""; if (f) run(f); }} />
+        <button ref={recordButton} className="button" disabled={!detector || busy || recording}
+          aria-expanded={recording} onClick={() => setRecording(true)}>
+          Record and analyze
+        </button>
         {file && <span className="muted">{file.name}</span>}
         <a href="#history">History</a>
         {loadError && <p className="error">The pose model could not be loaded: {loadError}</p>}
       </section>
+
+      {recording && (
+        <VideoRecorder minSeconds={MIN_RECORD_S}
+          onRecorded={(f) => { setRecording(false); run(f); }}
+          onCancel={() => { setRecording(false); requestAnimationFrame(() => recordButton.current?.focus()); }} />
+      )}
 
       {stage.kind === "extracting" && (
         <p role="status">Finding body keypoints… {stage.total ? `${stage.done} / ${stage.total} frames` : "opening video"}</p>

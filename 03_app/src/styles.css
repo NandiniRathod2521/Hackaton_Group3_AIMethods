@@ -107,3 +107,29 @@ button:disabled { cursor: default; opacity: 0.55; }
 .history-open { flex: 1; min-width: 0; display: flex; flex-wrap: wrap; gap: 4px 16px; text-align: left; font-variant-numeric: tabular-nums; }
 .history-date { font-weight: 600; }
 .history-delete { flex: none; }
+
+/* Visible keyboard focus on all controls (mouse clicks don't show the ring). */
+button:focus-visible, .button:focus-visible, .button-secondary:focus-within, summary:focus-visible,
+input:focus-visible, a:focus-visible {
+  outline: 3px solid var(--accent); outline-offset: 2px;
+}
+
+/* In-browser recording */
+.recorder { background: var(--surface); border: 1px solid var(--line); border-radius: 8px; padding: 12px; }
+.recorder-preview { position: relative; background: #000; border-radius: 8px; overflow: hidden; aspect-ratio: 16 / 9; max-height: 60vh; margin: 0 auto; }
+.recorder-preview[hidden] { display: none; }
+.recorder-preview video { width: 100%; height: 100%; object-fit: contain; display: block; }
+.recorder-badge {
+  position: absolute; top: 8px; left: 8px; display: inline-flex; align-items: center; gap: 6px;
+  background: rgb(0 0 0 / 0.65); color: #fff; border-radius: 6px; padding: 2px 8px; font-variant-numeric: tabular-nums; font-weight: 600;
+}
+.recorder-dot { width: 10px; height: 10px; border-radius: 50%; background: #e5484d; }
+@media (prefers-reduced-motion: no-preference) { .recorder-dot { animation: rec-pulse 1.2s ease-in-out infinite; } }
+@keyframes rec-pulse { 50% { opacity: 0.35; } }
+.recorder-status { margin: 10px 0 4px; }
+.recorder-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+.recorder-note { font-size: 0.85rem; margin: 8px 0 0; }
+@media (max-width: 480px) {
+  .picker .button, .recorder-actions button { flex: 1 1 100%; text-align: center; }
+  .recorder-preview { aspect-ratio: 3 / 4; }
+}
