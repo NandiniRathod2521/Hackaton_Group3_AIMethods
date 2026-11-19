@@ -18,10 +18,24 @@ type RVFCVideo = HTMLVideoElement & {
   requestVideoFrameCallback?: (cb: (now: number, meta: { mediaTime: number }) => void) => number;
 };
 
-function once(el: EventTarget, type: string): Promise<void> {
+const MEDIA_ERRORS = ["", "MEDIA_ERR_ABORTED", "MEDIA_ERR_NETWORK", "MEDIA_ERR_DECODE", "MEDIA_ERR_SRC_NOT_SUPPORTED"];
+
+/** The browser's own reason a media element failed, e.g. "MEDIA_ERR_DECODE: …". */
+export function mediaErrorDetail(video: HTMLMediaElement): string {
+  const e = video.error;
+  if (!e) return "unknown media error";
+  return [MEDIA_ERRORS[e.code] ?? `code ${e.code}`, e.message].filter(Boolean).join(": ");
+}
+
+function once(video: HTMLMediaElement, type: string): Promise<void> {
   return new Promise((resolve, reject) => {
-    el.addEventListener(type, () => resolve(), { once: true });
-    el.addEventListener("error", () => reject(new Error(`video error while waiting for ${type}`)), { once: true });
+    const ok = () => { video.removeEventListener("error", bad); resolve(); };
+    const bad = () => {
+      video.removeEventListener(type, ok);
+      reject(new Error(`video error while waiting for ${type} (${mediaErrorDetail(video)})`));
+    };
+    video.addEventListener(type, ok, { once: true });
+    video.addEventListener("error", bad, { once: true });
   });
 }
 
@@ -40,6 +54,34 @@ async function seek(video: RVFCVideo, t: number): Promise<number | null> {
   video.currentTime = t;
   await seeked;
   return frameTime;
+}
+
+/**
+ * Browser recordings (MediaRecorder WebM in Chrome/Edge, sometimes Firefox) report duration as
+ * Infinity until the end has been read. Seeking far past the end makes the browser scan the file
+ * and publish the real duration; then return to the start. Files with a known duration are untouched.
+ */
+async function ensureFiniteDuration(video: HTMLVideoElement): Promise<void> {
+  const known = () => Number.isFinite(video.duration) && video.duration > 0;
+  if (known()) return;
+  await new Promise<void>((resolve, reject) => {
+    const events = ["durationchange", "timeupdate", "seeked"] as const;
+    const done = (fn: () => void) => {
+      clearTimeout(timer);
+      events.forEach((ev) => video.removeEventListener(ev, check));
+      video.removeEventListener("error", bad);
+      fn();
+    };
+    const check = () => { if (known()) done(resolve); };
+    const bad = () => done(() => reject(new Error(`video error while finding the video length (${mediaErrorDetail(video)})`)));
+    const timer = setTimeout(() => done(() => reject(new Error("could not determine the video length"))), 15000);
+    events.forEach((ev) => video.addEventListener(ev, check));
+    video.addEventListener("error", bad);
+    video.currentTime = 1e101;
+  });
+  const back = once(video, "seeked");
+  video.currentTime = 0;
+  await back;
 }
 
 /** Estimate the source frame duration from frame presentation times during a short muted play. */
@@ -80,6 +122,7 @@ export async function extractVideo(
   video.preload = "auto";
   video.src = src;
   await once(video, "loadeddata");
+  await ensureFiniteDuration(video);
   const width = video.videoWidth;   // already upright: browsers apply the rotation tag
   const height = video.videoHeight;
   const durationS = video.duration;
